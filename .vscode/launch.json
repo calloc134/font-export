@@ -1,0 +1,45 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'font-export'", // プロジェクト名に合わせて変更
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=font-export", // 実行可能ファイル名に合わせて変更
+                    "--package=font-export" // パッケージ名に合わせて変更
+                ],
+                "filter": {
+                    "name": "font-export", // 実行可能ファイル名に合わせて変更
+                    "kind": "bin"
+                }
+            },
+            "args": [], // プログラムに渡すコマンドライン引数があればここに追加
+            "cwd": "${workspaceFolder}", // 実行時のカレントディレクトリ
+            "sourceLanguages": ["rust"] // Rustであることを明示
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'font-export'", // プロジェクト名に合わせて変更
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=font-export", // 実行可能ファイル名に合わせて変更
+                    "--package=font-export" // パッケージ名に合わせて変更
+                ],
+                "filter": {
+                    "name": "font-export", // 実行可能ファイル名に合わせて変更
+                    "kind": "bin"
+                }
+            },
+            "args": [], // テストに渡す引数があればここに追加
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": ["rust"]
+        }
+        // ライブラリや他のバイナリ、インテグレーションテストなどの構成も同様に追加可能
+    ]
+}

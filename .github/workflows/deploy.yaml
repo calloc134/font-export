@@ -1,0 +1,95 @@
+# .github/workflows/release.yml
+
+on:
+  release:
+    types: [created] # GitHub上でリリースが作成されたときにトリガー
+
+name: Release Workflow
+
+jobs:
+  # Windows向けのビルドジョブ
+  build_windows:
+    name: Build Windows Artifact
+    runs-on: windows-latest # Windows環境で実行
+
+    steps:
+      # 1. リポジトリのコードをチェックアウト
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Rustツールチェインをセットアップ
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc # Windowsターゲットを指定
+          components: rust-src rustc-dev llvm-tools-preview # 必要なコンポーネント
+
+      # 3. プロジェクトをビルド (リリースモード、Windowsターゲット)
+      - name: Build project
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      # 4. ビルド成果物 (実行ファイル) をアーティファクトとしてアップロード
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifact # アーティファクト名 (次のジョブで参照)
+          path: target/x86_64-pc-windows-msvc/release/font-export.exe # アップロードするファイルのパス
+          if-no-files-found: error # ファイルが見つからない場合はエラー
+          overwrite: true # 同名のアーティファクトがあれば上書き
+
+  create_release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build_windows]
+    # env ブロックでターゲット名を定義しておくと便利
+    env:
+      TARGET_TRIPLE: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifact
+          path: artifacts/windows # artifacts/windows/font-export.exe に展開される
+
+      - name: Rename artifact for release
+        id: rename # このステップにIDを付ける
+        run: |
+          ARTIFACT_DIR="artifacts/windows"
+          TAG_NAME="${{ github.event.release.tag_name }}" # トリガーとなったリリースのタグ名を取得
+
+          # ダウンロードされた実行ファイルを探す
+          original_file=$(find "$ARTIFACT_DIR" -maxdepth 1 -type f -name '*.exe' | head -n 1)
+
+          if [ -z "$original_file" ]; then
+            echo "Error: Executable file not found in $ARTIFACT_DIR"
+            exit 1
+          fi
+
+          # ファイル名からベース名と拡張子を取得
+          filename=$(basename "$original_file")
+          extension="${filename##*.}"
+          base_name="${filename%.*}" # 例: font-export
+
+          # 新しいファイル名を構築: プロジェクト名-タグ名-ターゲット名.拡張子
+          new_name="${base_name}-${TAG_NAME}-${{ env.TARGET_TRIPLE }}.${extension}"
+          new_path="artifacts/${new_name}" # artifacts 直下にリネームして配置
+
+          echo "Renaming '$original_file' to '$new_path'"
+          mv "$original_file" "$new_path"
+
+          # リネーム後のファイルパスを出力として設定
+          echo "renamed_file=${new_path}" >> $GITHUB_OUTPUT
+
+      # GitHub Release を更新 (ファイル添付)
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          # リリース名やタグ名は GitHub 上で作成されたものが使われるので、
+          # ここで指定するのは主にアップロードするファイル
+          files: ${{ steps.rename.outputs.renamed_file }}
+          # generate_release_notes はリリースの本文がない場合に自動生成してくれる
+          generate_release_notes: true
+          # prerelease: contains(github.ref, '-rc') # 必要ならプレリリースの設定を追加
+          # draft: false # ドラフトではなく即時公開 (デフォルト)

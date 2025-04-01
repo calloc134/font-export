@@ -1,0 +1,3 @@
+# 選択するフォント名と出力先を入力
+font_name = "Arial"
+output_filename = "Arial.ttf"
