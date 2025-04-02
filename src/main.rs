@@ -6,9 +6,6 @@ use std::marker::PhantomData;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf; // PathBuf を使うために追加
 
-// serde と toml は不要になったためコメントアウト (または削除)
-// use serde::Deserialize;
-// thiserror
 use thiserror::Error;
 
 // Windows API 関連
@@ -21,7 +18,7 @@ use windows::{
     core::{Error as WinError, PCWSTR},
 };
 
-// --- コマンドライン引数定義 (clap を使用) ---
+/// --- コマンドライン引数定義 (clap を使用) ---
 #[derive(Parser, Debug)]
 #[command(version, about = "Extracts font data from an installed font.", long_about = None)]
 struct Args {
@@ -34,17 +31,15 @@ struct Args {
     output_dir: PathBuf, // 保存先ディレクトリを PathBuf で受け取る
 }
 
-// --- カスタムエラー型定義 (toml 関連を削除) ---
+/// --- カスタムエラー型定義 ---
 #[derive(Error, Debug)]
 pub enum FontExtractorError {
-    // ConfigRead と ConfigParse を削除
     #[error("Windows API call '{api_name}' failed: {source}")]
     WinApi { api_name: String, source: WinError },
     #[error("Font '{font_name}' reported size 0 or could not be read.")]
     ZeroSizeFont { font_name: String },
     #[error("GetFontData reported unexpected size: expected {expected}, got {got}")]
     FontDataSizeMismatch { expected: u32, got: u32 },
-    // FileCreate/FileWrite の path は String のまま (PathBuf.display().to_string() で渡す)
     #[error("Failed to create/ensure output directory or file '{path}': {source}")]
     FileCreate {
         path: String,
@@ -57,14 +52,7 @@ pub enum FontExtractorError {
     },
 }
 
-// --- Config 構造体は不要になったため削除 ---
-// #[derive(Deserialize)]
-// struct Config {
-//     font_name: String,
-//     output_filename: String, // ディレクトリ名に変更される
-// }
-
-// --- RAII ラッパー: SafeDC (変更なし) ---
+/// --- RAII ラッパー: SafeDC ---
 struct SafeDC(HDC);
 impl SafeDC {
     fn new() -> Result<Self, FontExtractorError> {
@@ -90,7 +78,7 @@ impl Drop for SafeDC {
     }
 }
 
-// --- RAII ラッパー: SafeFont (変更なし) ---
+/// --- RAII ラッパー: SafeFont ---
 struct SafeFont(HFONT);
 impl SafeFont {
     fn create(font_name: &str) -> Result<Self, FontExtractorError> {
@@ -138,7 +126,7 @@ impl Drop for SafeFont {
     }
 }
 
-// --- RAII ラッパー: FontSelector (変更なし) ---
+/// --- RAII ラッパー: FontSelector ---
 struct FontSelector<'dc> {
     dc: &'dc SafeDC,
     old_font: Option<HGDIOBJ>,
@@ -169,28 +157,19 @@ impl<'dc> Drop for FontSelector<'dc> {
     }
 }
 
-// --- main 関数 (設定ファイル読み込み部分を clap に変更) ---
+/// --- main 関数 ---
 fn main() -> Result<(), FontExtractorError> {
     // --- コマンドライン引数の解析 ---
-    let args = Args::parse(); // clap で引数を解析
-
-    // --- 変数の設定 ---
-    let font_name = &args.font_name; // コマンドライン引数からフォント名を取得
-    // 保存先ファイルパスを生成: (保存先ディレクトリ名)/(フォント名)
-    // 例: --output-dir C:\fonts --font-name arial.ttf -> C:\fonts\arial.ttf
-    // 例: --output-dir ./out --font-name "My Font" -> ./out/My Font
-    let output_path = args.output_dir.join(font_name); // PathBuf の join を使用
-    // エラー表示用に文字列化しておく
-    let output_path_str = output_path.display().to_string();
-
+    let args = Args::parse();
+    let font_name = &args.font_name;
     println!("Extracting font data for: {}", font_name);
 
-    // --- リソースの確保 (RAII) (変更なし) ---
+    // --- リソースの確保 (RAII) ---
     let dc = SafeDC::new()?;
     let font = SafeFont::create(font_name)?;
     let _font_selector = FontSelector::select(&dc, &font)?;
 
-    // --- フォントデータの取得 (unsafe ブロックは最小限に) (変更なし) ---
+    // --- フォントデータの取得 ---
     let data_size = unsafe { GetFontData(dc.get(), 0, 0, None, 0) };
 
     if data_size == GDI_ERROR as u32 {
@@ -204,11 +183,9 @@ fn main() -> Result<(), FontExtractorError> {
             font_name: font_name.to_string(),
         });
     }
-
     println!("Font data size: {} bytes", data_size);
 
     let mut buffer: Vec<u8> = vec![0; data_size as usize];
-
     let bytes_written = unsafe {
         GetFontData(
             dc.get(),
@@ -218,7 +195,6 @@ fn main() -> Result<(), FontExtractorError> {
             data_size,
         )
     };
-
     if bytes_written == GDI_ERROR as u32 {
         return Err(FontExtractorError::WinApi {
             api_name: "GetFontData (get data)".to_string(),
@@ -232,26 +208,45 @@ fn main() -> Result<(), FontExtractorError> {
         });
     }
 
-    // --- ファイルへの書き込み (PathBuf を使用) ---
-    println!("Writing font data to: {}", output_path.display()); // display() で表示
+    // --- フォントデータの先頭でフォント種別を判定 ---
+    let ext = if buffer.len() >= 4 {
+        if &buffer[..4] == b"OTTO" {
+            "otf"
+        } else if &buffer[..4] == b"\x00\x01\x00\x00" {
+            "ttf"
+        } else if &buffer[..4] == b"ttcf" {
+            "ttc"
+        } else {
+            "bin" // 不明な場合はデフォルトで bin 拡張子
+        }
+    } else {
+        "bin"
+    };
 
-    // 親ディレクトリが存在しない場合に作成する
+    // --- 出力パスの構築 ---
+    // ユーザー指定のフォント名に既に拡張子がある場合は上書きします。
+    let mut output_path = args.output_dir.join(font_name);
+    output_path.set_extension(ext); // 拡張子を上書き
+
+    let output_path_str = output_path.display().to_string();
+    println!("Writing font data to: {}", output_path.display());
+
+    // --- 保存先ディレクトリの作成 ---
     if let Some(parent_dir) = output_path.parent() {
         fs::create_dir_all(parent_dir).map_err(|e| FontExtractorError::FileCreate {
-            // エラーメッセージには親ディレクトリのパスを表示
             path: parent_dir.display().to_string(),
             source: e,
         })?;
     }
 
-    // ファイルを作成して書き込む
+    // --- ファイルへの書き込み ---
     let mut file = fs::File::create(&output_path).map_err(|e| FontExtractorError::FileCreate {
-        path: output_path_str.clone(), // エラー用に文字列化したパスを使用
+        path: output_path_str.clone(),
         source: e,
     })?;
     file.write_all(&buffer)
         .map_err(|e| FontExtractorError::FileWrite {
-            path: output_path_str, // エラー用に文字列化したパスを使用
+            path: output_path_str,
             source: e,
         })?;
 
