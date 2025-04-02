@@ -2,15 +2,6 @@
 
 This project extracts font data from system fonts on Windows using Rust and the Windows API.
 
-## Overview
-
-The program:
-
-- Reads configuration from a `config.toml` file that specifies the `font_name` and `output_filename`.
-- Creates a compatible device context (DC) and a font using safe RAII wrappers in Rust.
-- Extracts font data with the Windows `GetFontData` function.
-- Writes the retrieved font data to a file.
-
 ## Setup and Usage
 
 1.  **Download the Release:**
