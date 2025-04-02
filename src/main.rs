@@ -26,11 +26,11 @@ use windows::{
 #[command(version, about = "Extracts font data from an installed font.", long_about = None)]
 struct Args {
     /// Name of the font to extract (e.g., "Arial", "Times New Roman")
-    #[arg(long)]
+    #[arg(long, short)]
     font_name: String,
 
     /// Directory where the font file should be saved
-    #[arg(long)]
+    #[arg(long, short, default_value = ".")]
     output_dir: PathBuf, // 保存先ディレクトリを PathBuf で受け取る
 }
 
